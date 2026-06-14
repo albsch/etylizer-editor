@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>etylizer · Erlang + Elixir typechecker · __ETY_COMMIT__</title>
+<style>
+  :root { --bg:#1e1e1e; --panel:#252526; --border:#333; --dim:#888;
+          --err:#f48771; --ok:#89d185; --accent:#4fc1ff; --purple:#c586c0; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+         background: var(--bg); color: #d4d4d4; display: flex; flex-direction: column; }
+  header { padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+           display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+  header strong { color: #fff; font-size: 14px; }
+  .tabs { display: flex; gap: 4px; margin-left: 4px; }
+  .tab { padding: 4px 14px; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--dim);
+         background: transparent; border: 1px solid transparent; border-bottom: none; user-select: none; }
+  .tab:hover { color: #d4d4d4; }
+  .tab.active { color: #fff; background: var(--bg); border-color: var(--border); }
+  .tab.erl.active { box-shadow: inset 0 2px 0 var(--accent); }
+  .tab.ex.active  { box-shadow: inset 0 2px 0 var(--purple); }
+  .dim { color: var(--dim); }
+  .commit { color: var(--accent); text-decoration: none; }
+  .commit:hover { text-decoration: underline; }
+  .buildinfo { position: relative; display: inline-block; }
+  .buildinfo-pop { position: absolute; top: 100%; left: 0; margin-top: 5px; z-index: 50;
+     background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+     padding: 8px 11px; display: none; flex-direction: column; gap: 4px; white-space: nowrap;
+     box-shadow: 0 6px 20px rgba(0,0,0,.45); color: #d4d4d4; font-size: 12px; line-height: 1.5; }
+  .buildinfo-pop::before { content: ""; position: absolute; bottom: 100%; left: 0; right: 0; height: 5px; }
+  .buildinfo:hover .buildinfo-pop { display: flex; }
+  .buildinfo-pop a { color: var(--accent); text-decoration: none; }
+  .buildinfo-pop a:hover { text-decoration: underline; }
+  #status { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .badge { padding: 2px 9px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
+  .badge.ok   { background: rgba(137,209,133,.15); color: var(--ok); }
+  .badge.err  { background: rgba(244,135,113,.15); color: var(--err); }
+  .badge.work { background: rgba(79,193,255,.15);  color: var(--accent); }
+  .badge.boot { background: rgba(255,255,255,.08); color: var(--dim); }
+  .badge.dirty{ background: rgba(229,192,123,.16); color: #e5c07b; }
+  .spinner { width:11px; height:11px; border:2px solid rgba(79,193,255,.3);
+             border-top-color: var(--accent); border-radius:50%; display:inline-block;
+             animation: spin .8s linear infinite; vertical-align:-1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .save-btn { background: var(--accent); color:#06263b; border:none; border-radius:6px;
+     padding:4px 11px; font:inherit; font-size:12px; font-weight:600; cursor:pointer;
+     display:inline-flex; align-items:center; gap:6px; }
+  .save-btn:hover { filter: brightness(1.08); }
+  .save-btn[hidden] { display:none; }
+  .save-btn kbd { background: rgba(0,0,0,.18); border-radius:3px; padding:0 4px; font-size:11px; }
+  main { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+  #editor { height: 100%; width: 100%; font-size: 13.5px; }
+  #side { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .side-h { padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+            color: var(--dim); text-transform: uppercase; letter-spacing: .06em; font-size: 11px;
+            display:flex; justify-content:space-between; }
+  #problems { flex: 1 1 auto; overflow: auto; padding: 6px 0; }
+  .prob { padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
+  .prob:hover { background: rgba(255,255,255,.04); }
+  .prob .loc { color: var(--accent); }
+  .prob .msg { color: var(--err); white-space: pre-wrap; }
+  .prob.none { color: var(--ok); cursor: default; }
+  .prob.pending { color: var(--dim); cursor: default; }
+  .ety-marker { position: absolute; z-index: 5;
+     background: linear-gradient(135deg, transparent 0, transparent 45%, var(--err) 45%, var(--err) 55%, transparent 55%) repeat-x;
+     background-size: 6px 3px; background-position: bottom; }
+</style>
+</head>
+<body>
+<header>
+  <strong>etylizer</strong>
+  <span class="dim">set-theoretic typechecker · <span class="buildinfo"><a class="commit" href="https://github.com/etylizer/etylizer/commit/__ETY_COMMIT__" target="_blank" rel="noopener">__ETY_COMMIT__</a><span class="buildinfo-pop" role="tooltip">
+    <span class="bi-line">OTP <a href="https://github.com/albsch/erlang-otp-wasm" target="_blank" rel="noopener">__OTP_VERSION__</a> · <a href="https://github.com/albsch/erlang-otp-wasm/commit/__WASM_COMMIT__" target="_blank" rel="noopener">__WASM_COMMIT__</a> · <a href="https://github.com/albsch/erlang-otp-wasm" target="_blank" rel="noopener">albsch/erlang-otp-wasm</a></span>
+    <span class="bi-line">ERTS __ERTS_VERSION__</span>
+    <span class="bi-line">Elixir __ELIXIR_VERSION__</span>
+    <span class="bi-line">etylizer __ETY_COMMIT__</span>
+    <span class="bi-line">Editor __EDITOR_VERSION__</span>
+  </span></span></span>
+  <div class="tabs">
+    <div id="tab-erl" class="tab erl active" data-tab="erl">Erlang</div>
+    <div id="tab-ex"  class="tab ex" data-tab="ex">Elixir</div>
+  </div>
+  <span id="status">
+    <button id="save" class="save-btn" hidden>● Save <kbd>⌘S</kbd></button>
+    <span id="badge" class="badge boot">loading…</span>
+  </span>
+</header>
+<main>
+  <div id="editor"></div>
+  <div id="side">
+    <div class="side-h"><span id="probs-title">Problems</span><span id="timing" class="dim"></span></div>
+    <div id="problems"></div>
+  </div>
+</main>
+
+<!-- BEAM-ASSETS -->
+<script src="ace/ace.min.js"></script>
+<script src="ace/theme-tomorrow_night.min.js"></script>
+<script src="ace/mode-erlang.min.js"></script>
+<script src="ace/mode-elixir.min.js"></script>
+
+<script>
+"use strict";
+
+const ERLANG_SRC = `-module(input).
+-compile(export_all).
+
+% from eqWAlizer
+%-spec filtermap(fun((T) -> boolean() | {'true', X}), [T]) -> [(T | X)].
+
+% from stdlib
+%-spec filtermap(Fun, List1) -> List2 when
+%      Fun :: fun((Elem) -> boolean() | {'true', Value}),
+%      List1 :: [Elem],
+%      List2 :: [Elem | Value],
+%      Elem :: term(),
+%      Value :: term().
+
+%from etylizer
+-spec filtermap(fun((T) -> boolean()), [T]) -> [T]
+                ; (fun((T) -> {true, U} | false), [T]) -> [U]
+                ; (fun((T) -> {true, U} | boolean()), [T]) -> [T | U].
+filtermap(_F, []) -> [];
+filtermap(F, [X|XS]) ->
+    case F(X) of
+        false -> filtermap(F, XS);
+        true -> [X | filtermap(F, XS)];
+        {true, Y} -> [Y | filtermap(F, XS)]
+    end.
+
+
+
+% bughunt: is_set/1 and is_set/2 verbatim from stdlib
+% try to get both to type check
+% without using dynamic() in the specs
+-spec is_set(Ordset) -> boolean() when
+      Ordset :: term().
+is_set([E|Es]) -> is_set(Es, E);
+is_set([]) -> true;
+is_set(_) -> false.
+
+%-spec is_set(?, ?) -> ?.
+is_set([E2|Es], E1) when E1 < E2 ->
+    is_set(Es, E2);
+is_set([_|_], _) -> false;
+is_set([], _) -> true.
+`;
+
+const ELIXIR_SRC = `defmodule Input do
+  @spec filtermap((t -> boolean()), [t]) :: [t] when t: var
+  @spec filtermap((t -> {true, u} | false), [t]) :: [u] when t: var, u: var
+  @spec filtermap((t -> {true, u} | boolean()), [t]) :: [t | u] when t: var, u: var
+  def filtermap(_f, []), do: []
+
+  def filtermap(f, [x | xs]) do
+    case f.(x) do
+      false -> filtermap(f, xs)
+      true -> [x | filtermap(f, xs)]
+      {true, y} -> [y | filtermap(f, xs)]
+    end
+  end
+
+  # bughunt: is_set/1 and is_set/2 verbatim from stdlib
+  # try to get both to type check
+  # without using dynamic() in the specs
+  @spec is_set(term()) :: boolean()
+  def is_set([e | es]), do: is_set(es, e)
+  def is_set([]), do: true
+  def is_set(_), do: false
+
+  # @spec is_set(?, ?) :: ?
+  def is_set([e2 | es], e1) when e1 < e2, do: is_set(es, e2)
+  def is_set([_ | _], _), do: false
+  def is_set([], _), do: true
+end
+`;
+
+const TABS = {
+  erl: { label: 'Erlang', mode: 'ace/mode/erlang', ext: 'erl', srcLabel: 'input.erl',
+         source: ERLANG_SRC, saved: ERLANG_SRC, frame: null },
+  ex:  { label: 'Elixir', mode: 'ace/mode/elixir', ext: 'ex', srcLabel: 'input.ex',
+         source: ELIXIR_SRC, saved: ELIXIR_SRC, frame: null }
+};
+let active = 'erl';
+
+// ---- deterministic state for tests -------------------------------------------
+const ETY = window.__ETY = {
+  ready: false, fsReady: false, checks: [],
+  tab: () => active, frameOf: t => TABS[t].frame
+};
+
+const badgeEl = document.getElementById('badge');
+const timingEl = document.getElementById('timing');
+const problemsEl = document.getElementById('problems');
+const saveBtn = document.getElementById('save');
+const probsTitle = document.getElementById('probs-title');
+
+function setBadge(cls, html) { badgeEl.className = 'badge ' + cls; badgeEl.innerHTML = html; }
+// BEAM stdout/stderr goes to the browser's JS console only (debugging aid).
+function logLine(s) { console.log('[beam] ' + s); }
+
+// ---- Ace ---------------------------------------------------------------------
+const editor = ace.edit('editor');
+editor.setTheme('ace/theme/tomorrow_night');
+const session = editor.session;
+session.setMode(TABS[active].mode);
+session.setUseWorker(false);
+editor.setOptions({ fontSize: '13.5px', showPrintMargin: false, tabSize: 2, useSoftTabs: true });
+editor.setReadOnly(true);
+session.setValue(TABS[active].source, -1);
+
+const Range = ace.require('ace/range').Range;
+let markerIds = [];
+function clearMarkers() { markerIds.forEach(id => session.removeMarker(id)); markerIds = []; }
+
+// ---- diagnostics rendering (operates on the active tab) ----------------------
+function renderPending() {
+  clearMarkers(); session.clearAnnotations();
+  problemsEl.innerHTML = '<div class="prob pending">…</div>';
+}
+function renderOk(elapsed) {
+  clearMarkers(); session.clearAnnotations();
+  problemsEl.innerHTML = '<div class="prob none">✓ No type errors</div>';
+  setBadge('ok', '✓ No type errors');
+  timingEl.textContent = elapsed != null ? elapsed + ' ms' : '';
+}
+// Render ALL diagnostics from a report (gutter annotations + inline squiggles +
+// a problems list, one entry per finding).
+function renderReport(rec) {
+  clearMarkers();
+  problemsEl.innerHTML = '';
+  const anns = [];
+  rec.diags.forEach(d => {
+    const row = Math.max(0, d.line - 1), col = Math.max(0, d.col - 1);
+    const lineLen = (session.getLine(row) || '').length;
+    const type = d.kind === 'Timeout' ? 'warning' : 'error';
+    markerIds.push(session.addMarker(new Range(row, col, row, Math.max(col + 1, lineLen)), 'ety-marker', 'text'));
+    anns.push({ row, column: col, type, text: d.message });
+    const el = document.createElement('div');
+    el.className = 'prob'; el.dataset.row = row; el.dataset.col = col;
+    const loc = document.createElement('div'); loc.className = 'loc';
+    loc.textContent = TABS[active].srcLabel + ':' + d.line + ':' + d.col + (d.ref ? '  ·  ' + d.ref : '');
+    const msg = document.createElement('div'); msg.className = 'msg'; msg.textContent = d.message;
+    el.appendChild(loc); el.appendChild(msg); problemsEl.appendChild(el);
+  });
+  session.setAnnotations(anns);
+  const n = rec.diags.length;
+  setBadge('err', '✗ ' + n + ' error' + (n === 1 ? '' : 's'));
+  timingEl.textContent = rec.elapsed != null ? rec.elapsed + ' ms' : '';
+}
+function renderFrame(f) {
+  if (!f) { problemsEl.innerHTML = ''; setBadge('boot', 'not checked'); timingEl.textContent = ''; return; }
+  if (!f.diags || f.diags.length === 0) renderOk(f.elapsed); else renderReport(f);
+}
+
+problemsEl.addEventListener('click', e => {
+  const p = e.target.closest('.prob[data-row]');
+  if (!p) return;
+  editor.gotoLine(+p.dataset.row + 1, +p.dataset.col, true); editor.focus();
+});
+
+// ---- JS <-> BEAM bridge ------------------------------------------------------
+let gen = 1;                     // boot check is gen 1 (Erlang tab)
+let startTimes = { '1': null };
+let genTab = { '1': 'erl' };
+
+function isDirty() { return TABS[active].source !== TABS[active].saved; }
+function refreshDirtyUI() {
+  const dirty = isDirty();
+  saveBtn.hidden = !(dirty && ETY.ready);
+  if (dirty && ETY.ready) setBadge('dirty', '● unsaved');
+}
+
+// Run a check for the active tab's buffer in a fresh worker (bumped gen).
+function checkTab(tabId) {
+  if (!ETY.ready) return;
+  const t = TABS[tabId];
+  t.saved = t.source;
+  gen += 1; const g = String(gen);
+  genTab[g] = tabId; startTimes[g] = performance.now();
+  if (tabId === active) { saveBtn.hidden = true; setBadge('work', '<span class="spinner"></span> checking…'); timingEl.textContent = ''; }
+  runCheck(tabId, g);
+}
+function save() { if (ETY.ready && isDirty()) checkTab(active); }
+ETY.save = save;
+ETY.checkTab = checkTab;
+
+session.on('change', () => { if (!editor.getReadOnly()) { TABS[active].source = session.getValue(); refreshDirtyUI(); } });
+saveBtn.addEventListener('click', save);
+editor.commands.addCommand({ name: 'ety-save', bindKey: { win: 'Ctrl-S', mac: 'Command-S' }, exec: save });
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(); }
+});
+
+// ---- tabs --------------------------------------------------------------------
+function switchTab(tabId) {
+  if (tabId === active) return;
+  TABS[active].source = session.getValue();       // keep edits
+  active = tabId;
+  document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tabId));
+  probsTitle.textContent = 'Problems · ' + TABS[tabId].srcLabel;
+  session.setMode(TABS[tabId].mode);
+  editor.setValue(TABS[tabId].source, -1);
+  renderFrame(TABS[tabId].frame);
+  refreshDirtyUI();
+  if (ETY.ready && TABS[tabId].frame === null && !isDirty()) checkTab(tabId);  // first view → check
+}
+ETY.switchTab = switchTab;
+document.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => switchTab(el.dataset.tab)));
+
+// ---- asset wiring (multi-file vs single-file) --------------------------------
+// Two deployment shapes share this page:
+//   * served (docs/):  beam-worker.js + beam.{js,wasm,data} are sibling files.
+//   * single-file:     the assembler (build-release.py) inlines them into
+//                      <script> holders; we rebuild each as a same-origin Blob
+//                      URL so the per-check worker fetches them from memory.
+// Detected by the presence of the inlined holders.
+const ASSETS = (function () {
+  const wEl = document.getElementById('beam-worker');
+  const jsEl = document.getElementById('beam-js');
+  if (!wEl || !jsEl) {                       // served: plain sibling files
+    return { workerUrl: 'beam-worker.js', beamJsUrl: 'beam.js', urls: {} };
+  }
+  const blobUrl = (data, type) => URL.createObjectURL(new Blob([data], { type }));
+  const fromB64 = id => {                     // base64 holder -> Uint8Array
+    const s = document.getElementById(id).textContent.trim();
+    const bin = atob(s), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  };
+  return {
+    workerUrl: blobUrl(wEl.textContent, 'application/javascript'),
+    beamJsUrl: blobUrl(jsEl.textContent, 'application/javascript'),
+    urls: {
+      'beam.wasm': blobUrl(fromB64('beam-wasm'), 'application/wasm'),
+      'beam.data': blobUrl(fromB64('beam-data'), 'application/octet-stream')
+    }
+  };
+})();
+
+// ---- per-invocation worker bridge --------------------------------------------
+// Each typecheck runs in its OWN Web Worker (beam-worker.js): no SharedArrayBuffer,
+// no cross-origin isolation. The worker boots the single-threaded BEAM, runs one
+// check, streams its report (parsed below), and is terminated once @@ETY_END
+// arrives. The next check spawns a fresh worker.
+let currentWorker = null;
+
+function onReady() {
+  if (ETY.ready) return;
+  ETY.ready = true; editor.setReadOnly(false);
+  logLine('[BEAM ready, Erlang + Elixir driver running]');
+}
+
+function runCheck(tabId, g) {
+  if (currentWorker) { try { currentWorker.terminate(); } catch (e) {} currentWorker = null; }
+  const t = TABS[tabId];
+  const worker = new Worker(ASSETS.workerUrl);
+  currentWorker = worker;
+  let frame = null;
+  const finish = () => { if (currentWorker === worker) currentWorker = null; try { worker.terminate(); } catch (e) {} };
+  worker.onmessage = (ev) => {
+    const d = ev.data;
+    if (d.type === 'line') {
+      const line = d.line;
+      if (line === '@@ETY_READY') { onReady(); return; }
+      const m = line.match(/^@@ETY_BEGIN (\S+) (\S+)$/);
+      if (m) { frame = { gen: m[1], status: m[2], lines: [] }; return; }
+      if (line === '@@ETY_END') { if (frame) { deliverFrame(frame); frame = null; } finish(); return; }
+      if (frame) { frame.lines.push(line); return; }
+      if (line.trim()) logLine(line);
+    } else if (d.type === 'abort') {
+      setBadge('err', 'BEAM aborted'); logLine('ABORT: ' + d.what); finish();
+    } else if (d.type === 'exit') {
+      finish();
+    }
+  };
+  worker.onerror = (ev) => { logLine('worker error: ' + (ev.message || ev)); };
+  worker.postMessage({
+    type: 'check', args: BEAM_ARGS, env: BEAM_ENV,
+    beamJsUrl: ASSETS.beamJsUrl, urls: ASSETS.urls,
+    files: { ['input.' + t.ext]: t.source, 'mode': tabId, 'gen': String(g) }
+  });
+}
+// Parse etylizer's report-mode output (Ok:/Error:/Timeout:/... entries) into a
+// flat diagnostics list. Each non-Ok entry's indented body carries the source
+// location ("file:line:col: ...") and the caret context.
+function parseReport(lines) {
+  const entries = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(Ok|Error|Timeout|Unsupported|Other): (.*)$/);
+    if (m) { if (cur) entries.push(cur); cur = { kind: m[1], header: m[2], body: [] }; }
+    else if (cur) cur.body.push(line);
+  }
+  if (cur) entries.push(cur);
+  const diags = [];
+  for (const e of entries) {
+    if (e.kind === 'Ok') continue;
+    const body = e.body.join('\n');
+    const lm = body.match(/(\S.*?):(\d+):(\d+):\s*(.*)/);
+    const line = lm ? parseInt(lm[2], 10) : 1;
+    const col = lm ? parseInt(lm[3], 10) : 1;
+    const message = (e.body.length ? body.replace(/^\s+/, '') : (e.kind + ': ' + e.header)).replace(/\s+$/, '');
+    diags.push({ kind: e.kind, line, col, message, ref: e.header.replace(/ \(\d+ ms\)$/, '') });
+  }
+  return diags;
+}
+
+function deliverFrame(f) {
+  const t0 = startTimes[f.gen];
+  const elapsed = t0 != null ? Math.round(performance.now() - t0) : null;
+  const diags = parseReport(f.lines);
+  const tabId = genTab[f.gen] || 'erl';
+  const rec = { gen: f.gen, tab: tabId, status: diags.length ? 'errors' : 'ok',
+                count: diags.length, diags, message: f.lines.join('\n').replace(/\s+$/, ''), elapsed };
+  ETY.checks.push(rec);
+  TABS[tabId].frame = rec;
+  if (tabId === active && +f.gen >= gen - 0) renderFrameIfCurrent(tabId);
+}
+function renderFrameIfCurrent(tabId) {
+  if (tabId !== active) return;
+  renderFrame(TABS[tabId].frame);
+  if (ETY.ready && isDirty()) refreshDirtyUI();
+}
+
+// ---- boot --------------------------------------------------------------------
+const ERL_ROOT = '/usr/local/lib/erlang';
+const BINDIR = ERL_ROOT + '/erts-16.4/bin';
+const BEAM_ARGS = [
+  '--', '-root', ERL_ROOT, '-bindir', BINDIR, '-progname', 'erl',
+  '--', '-home', '/work',
+  '--', '-noshell', '-pa', '/etylizer/ebin',
+        '-boot', ERL_ROOT + '/bin/start_clean',
+        '-eval', 'web_driver:start().'
+];
+const BEAM_ENV = { BINDIR: BINDIR, EMU: 'beam', PROGNAME: 'erl', ROOTDIR: ERL_ROOT, HOME: '/work' };
+
+// Initial boot-check: Erlang tab, gen 1. Spawns the first worker; onReady() fires
+// once its BEAM driver is up, and the gen-1 frame renders the result.
+setBadge('boot', '<span class="spinner"></span> booting wasm BEAM…');
+genTab['1'] = 'erl'; startTimes['1'] = performance.now();
+runCheck('erl', 1);
+</script>
+</body>
+</html>
